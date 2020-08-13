@@ -35,6 +35,8 @@ gprojID <- getGEO(
 
 flog.debug("Clean metadata")
 
+gunzip(file.path(input.dir, projID, "GSE50760_series_matrix.txt.gz")) # file is mangled so it's necsary to open it manually
+
 pdata <- read.table(file.path(input.dir, projID, "GSE50760_series_matrix.txt"), fill = TRUE, skip = 31)
 pdata <- as.data.frame(t(pdata))
 temp_colnames <- unname(unlist(pdata[1,, drop <- TRUE]))
@@ -55,7 +57,7 @@ pdata$ajcc_stage <- substring(pdata$ajcc_stage, 13, 100)
 
 pdata <- filter(pdata, pdata$source_tissue != "metastasized cancer")
 
-saveRprojID(pdata, file.path(temp.dir, "pdata.RprojID"))
+saveRDS(pdata, file.path(temp.dir, "pdata.RDS"))
 
 
 flog.debug("Download normalized count data for GSE50760")
