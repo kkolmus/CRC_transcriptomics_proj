@@ -1,0 +1,176 @@
+rm(list = ls())
+
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#   install.packages("BiocManager")
+# 
+# BiocManager::install("TCGAbiolinks")
+
+suppressPackageStartupMessages({
+  library(futile.logger)
+  library(TCGAbiolinks)
+  library(SummarizedExperiment)
+  library(dplyr)
+  library(tibble)
+  library(stringr)
+})
+
+
+flog.threshold(DEBUG)
+
+
+flog.debug("Set project directory")
+
+proj.dir = "~/Desktop/HT projects/CRC_transcriptomics_proj"
+ifelse(test = !dir.exists(file.path(proj.dir)), 
+       yes = c(dir.create(file.path(proj.dir)), 
+               setwd(file.path(proj.dir))), 
+       no = "Folder exists")
+getwd()
+data.dir = file.path(proj.dir, "data", "TCGA", "survivalAnalysis_Matched_Stages")
+dir.create(data.dir)
+
+
+flog.debug("Set project directory and load data")
+
+dataClin <- readRDS(file.path(data.dir, "ClinData_matchedSamples.RDS"))
+dataClin$ajcc_pathologic_stage <- as.factor(dataClin$ajcc_pathologic_stage)
+levels <- dataClin$ajcc_pathologic_stage
+dataClin$days_to_death <- as.numeric(dataClin$days_to_death)
+early_stage <- filter(
+  dataClin, 
+  dataClin$ajcc_pathologic_stage %in% 
+    c("Stage I", "Stage II", "Stage IIA"))
+late_stage <- filter(
+  dataClin, 
+  dataClin$ajcc_pathologic_stage %in% 
+    c("Stage III", "Stage IIIB", "Stage IIIC", "Stage IV", "Stage IVA"))
+
+
+flog.debug("Load information required for the analysis")
+
+projects <- TCGAbiolinks:::getGDCprojects()$project_id
+projects <- projects[grepl('^TCGA', projects, perl = TRUE)]
+projects
+
+CancerProject <- c("TCGA-COAD", "TCGA-READ")
+DataDirectory <- "GDCdata"
+platform <- "Illumina HiSeq"
+FileNameData <- paste0(DataDirectory, platform,".rda")
+file.type <- "results"
+
+
+flog.debug("Query GDC")
+
+query <- GDCquery(project = CancerProject, 
+                  data.category = "Gene expression",
+                  data.type = "Gene expression quantification",
+                  platform = platform,
+                  file.type = file.type,
+                  experimental.strategy = "RNA-Seq",
+                  legacy = TRUE)
+
+samplesDown <- query$results[[1]]$cases
+
+MatchedCoupledSampleTypes <- TCGAquery_MatchedCoupledSampleTypes(samplesDown, c("NT","TP"))
+SampleNT <- TCGAquery_SampleTypes(barcode = MatchedCoupledSampleTypes, typesample = "NT")
+SampleTP <- TCGAquery_SampleTypes(barcode = MatchedCoupledSampleTypes, typesample = "TP")
+Sample.Short <- unique(substr(x = MatchedCoupledSampleTypes, start = 1, stop = 12))
+
+
+flog.debug("Prepare data and perform DEA")
+
+UP = 0.6; DOWN = -0.6; FDR_cutoff = 0.05; reads = 50;
+PreProc_cor.cut = 0.6; 
+Norm_method = "gcContent"; 
+Filt_method = "quantile"; 
+Filt_qnt.cut = 0.25;
+DEA_batch.factor = "Plate"; 
+DEA_method = "glmLRT"
+
+
+flog.debug("Query GDC")
+queryDown <- GDCquery(
+  project = CancerProject,
+  data.category = "Gene expression",
+  data.type = "Gene expression quantification",
+  platform = platform,
+  file.type = file.type,
+  barcode = c(SampleTP, SampleNT),
+  experimental.strategy = "RNA-Seq",
+  legacy = TRUE)
+
+
+flog.debug("Download samples")
+tryCatch(GDCdownload(query = queryDown,
+                     method = "api", 
+                     files.per.chunk = 20,
+                     directory = file.path(data.dir, "GDCdata")),
+         error = function(e) GDCdownload(query = queryDown,
+                                         method = "client", 
+                                         files.per.chunk = 20,
+                                         directory = file.path(data.dir, "GDCdata")))
+
+
+flog.debug("Prepare GDC data")
+FileNameData <- paste0("GDCdata", str_replace_all(platform, fixed(" "), ""),".rda")
+dataPrep <- GDCprepare(
+  query = queryDown, 
+  save = TRUE,
+  directory = file.path(data.dir, "GDCdata"), 
+  save.filename = FileNameData)
+
+
+flog.debug("Perform intensity correlation")
+dataPreProc <- TCGAanalyze_Preprocessing(
+  object = dataPrep, 
+  cor.cut = PreProc_cor.cut)
+
+flog.debug("Perform normalization")
+dataNorm <- TCGAanalyze_Normalization(
+  tabDF = dataPreProc,
+  geneInfo = geneInfo,
+  method = Norm_method)
+
+
+flog.debug("Perform data filtering based on threshold defined quantile mean across all samples")
+dataFilt <- TCGAanalyze_Filtering(
+  tabDF = dataNorm, 
+  method = Filt_method, 
+  qnt.cut =  Filt_qnt.cut)
+
+flog.debug("Perform differential gene expression analysis")
+dataDEGs <- TCGAanalyze_DEA(mat1 = dataFilt[,SampleNT], 
+                            mat2 = dataFilt[,SampleTP],
+                            Cond1type = "Normal", 
+                            Cond2type = "Tumor",
+                            batch.factors = DEA_batch.factor,
+                            fdr.cut = 0.05, logFC.cut = 0.6,
+                            method = DEA_method)
+
+ClinData <- readRDS(file.path(data.dir, "ClinData.RDS"))
+
+dataSurvival <- TCGAanalyze_SurvivalKM(
+  clinical_patient = ClinData,
+  dataGE = dataFilt,
+  Genelist = c("VPS37A", "VPS37B", "VPS37C"),
+  Survresult = FALSE,
+  ThreshTop = 0.67,
+  ThreshDown = 0.33,
+  p.cut = 0.05, 
+  group1 = SampleNT_Stage_final, 
+  group2 = SampleTP_Stage_final) 
+
+
+dataSurvival_all <- TCGAanalyze_SurvivalKM(
+  clinical_patient = ClinData,
+  dataGE = dataFilt,
+  Genelist = rownames(dataDEGs),
+  Survresult = FALSE,
+  ThreshTop = 0.67,
+  ThreshDown = 0.33,
+  p.cut = 0.05, 
+  group1 = SampleNT_Stage_final, 
+  group2 = SampleTP_Stage_final) 
+dataSurvival_all <- rownames_to_column(dataSurvival_all, "GeneSymbol")
+
+sessionInfo()
