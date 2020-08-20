@@ -26,13 +26,17 @@ ifelse(test = !dir.exists(file.path(proj.dir)),
                setwd(file.path(proj.dir))), 
        no = "Folder exists")
 getwd()
-data.dir = file.path(proj.dir, "data", "TCGA", "survivalAnalysis_Matched_Stages")
+data.dir = file.path(proj.dir, "data", "TCGA", "survivalAnalysis_All_Stages")
 dir.create(data.dir)
 
 
-flog.debug("Set project directory and load data")
+flog.debug("Get clinical data")
 
-dataClin <- readRDS(file.path(data.dir, "ClinData_matchedSamples.RDS"))
+dataClin_COAD <- GDCquery_clinic(project = "TCGA-COAD", type = "clinical")
+dataClin_READ <- GDCquery_clinic(project = "TCGA-READ", type = "clinical") 
+common_col_names <- intersect(colnames(dataClin_READ), colnames(dataClin_COAD))
+dataClin <- merge(dataClin_COAD, dataClin_READ, by = common_col_names, all = TRUE) 
+which(duplicated(dataClin))
 dataClin$ajcc_pathologic_stage <- as.factor(dataClin$ajcc_pathologic_stage)
 levels <- dataClin$ajcc_pathologic_stage
 dataClin$days_to_death <- as.numeric(dataClin$days_to_death)
@@ -144,23 +148,23 @@ dataFilt <- TCGAanalyze_Filtering(
   qnt.cut =  Filt_qnt.cut)
 
 flog.debug("Perform differential gene expression analysis")
-dataDEGs <- TCGAanalyze_DEA(mat1 = dataFilt[,SampleNT_Stage_final], 
-                            mat2 = dataFilt[,SampleTP_Stage_final],
-                            Cond1type = "Normal", 
-                            Cond2type = "Tumor",
-                            batch.factors = DEA_batch.factor,
-                            fdr.cut = 0.05, logFC.cut = 0.6,
-                            method = DEA_method)
+dataDEGs <- TCGAanalyze_DEA(
+  mat1 = dataFilt[,SampleNT_Stage_final], 
+  mat2 = dataFilt[,SampleTP_Stage_final],
+  Cond1type = "Normal", 
+  Cond2type = "Tumor",
+  batch.factors = DEA_batch.factor,
+  fdr.cut = 0.05, 
+  logFC.cut = 0.6,
+  method = DEA_method)
 
 
 flog.debug("Perform survival analysis")
 
-ClinData <- readRDS(file.path(data.dir, "ClinData.RDS"))
-
-dataFilt <- log2(dataFilt + 1)
+# dataFilt <- log2(dataFilt + 1)
 
 dataSurvival <- TCGAanalyze_SurvivalKM(
-  clinical_patient = filter(ClinData, ClinData$ajcc_pathologic_stage %in% stages),
+  clinical_patient = filter(dataClin, dataClin$ajcc_pathologic_stage %in% stages),
   dataGE = dataFilt,
   Genelist = c("VPS37A", "VPS37B", "VPS37C"),
   Survresult = FALSE,
@@ -172,7 +176,7 @@ dataSurvival <- TCGAanalyze_SurvivalKM(
 
 
 dataSurvival_all <- TCGAanalyze_SurvivalKM(
-  clinical_patient = filter(ClinData, ClinData$ajcc_pathologic_stage %in% stages),
+  clinical_patient = filter(dataClin, dataClin$ajcc_pathologic_stage %in% stages),
   dataGE = dataFilt,
   Genelist = rownames(dataDEGs),
   Survresult = FALSE,
@@ -182,5 +186,7 @@ dataSurvival_all <- TCGAanalyze_SurvivalKM(
   group1 = SampleNT_Stage_final, 
   group2 = SampleTP_Stage_final) 
 dataSurvival_all <- rownames_to_column(dataSurvival_all, "GeneSymbol")
+
+saveRDS(dataSurvival_all, file.path(data.dir, "dataSurvival_all_Samples_lateStages.RDS"))
 
 sessionInfo()
