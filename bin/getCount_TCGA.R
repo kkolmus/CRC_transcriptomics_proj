@@ -213,7 +213,8 @@ DEGanalysis <- function(stages, title,
   
   flog.debug("Perform differential gene expression analysis")
   dataDEGs <- TCGAanalyze_DEA(mat1 = patients[,paste0("Colon_", SampleNT_Stage_final)], 
-                              mat2 = patients[,paste0("Cancer_", SampleTP_Stage_final)],
+                              mat2 = patients[,paste0("Cancer_", SampleTP_Stage_final)], 
+                              # missing in total 6 values, 3 for early stages and 3 for late stages
                               Cond1type = "Normal", 
                               Cond2type = "Tumor",
                               batch.factors = DEA_batch.factor,

@@ -2,12 +2,8 @@
 
 suppressPackageStartupMessages({
   library(futile.logger)
-  library(dplyr)
-  library(tibble)
-  library(stringr)
-  library(ggplot2)
+  library(tidyverse)
   library(cowplot)
-  library(easyGgplot2)
 })
 
 ### MAIN ###
@@ -78,6 +74,8 @@ for(i in 1:nrow(n.counts_subset)) {
 
 rm(temp_column, temp_gene, temp_data, i)
 
+saveRDS(viz_input, file.path(input.dir, paste0("Viz_input_", projID, ".RDS")))
+
 
 flog.debug("Statsitical analysis")
 
@@ -100,10 +98,12 @@ stats_df_pval_subset <- filter(stats_df, stats_df$p.value < 0.05)
 
 rm(stats, test, temp_data, i)
 
+saveRDS(stats_df_pval_subset, file.path(input.dir, paste0("Stats", projID, ".RDS")))
+
 
 flog.debug("Prepare boxplots")
 
-GOI <- c("VPS37A", "VPS37B", "VPS37C", "VPS37D")
+GOI <- c("VPS37A", "VPS37B", "VPS37C")
 
 viz_input = viz_input[GOI]
 

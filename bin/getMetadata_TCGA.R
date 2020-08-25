@@ -75,14 +75,7 @@ SampleNT_short <- substr(x = SampleNT, start = 1, stop = 12)
 flog.debug("Get clinical data")
 
 dataClin_COAD <- GDCquery_clinic(project = "TCGA-COAD", type = "clinical") 
-saveRDS(dataClin_COAD, file.path(data.dir, "ClinData_COAD.RDS"))
-
 dataClin_READ <- GDCquery_clinic(project = "TCGA-READ", type = "clinical") 
-saveRDS(dataClin_READ, file.path(data.dir, "ClinData_READ.RDS"))
-
-
-flog.debug("Cleaning and subsetting clinical data")
-
 # join by common columns
 common_col_names <- intersect(colnames(dataClin_READ), colnames(dataClin_COAD))
 dataClin <- merge(dataClin_COAD, dataClin_READ, by = common_col_names, all = TRUE) 

@@ -56,7 +56,7 @@ dataClin_READ <- GDCquery_clinic(project = "TCGA-READ", type = "clinical")
 common_col_names <- intersect(colnames(dataClin_READ), colnames(dataClin_COAD))
 dataClin <- merge(dataClin_COAD, dataClin_READ, by = common_col_names, all = TRUE) 
 which(duplicated(dataClin))
-dataClin <- dataClin[complete.cases(dataClin[, 15]), ]
+dataClin <- dataClin[complete.cases(dataClin[, 9]), ]
 dataClin$ajcc_pathologic_stage <- as.factor(dataClin$ajcc_pathologic_stage)
 
 stats <- dataClin %>% group_by(ajcc_pathologic_stage) %>% summarise(n = n())
@@ -265,10 +265,10 @@ DEGanalysis <- function(stages, title,
   for (i in 1:length(viz_input)) {
     temp_data = viz_input[[i]]
     test = stats::pairwise.t.test(
-      temp_data[,2], 
-      temp_data[,3], 
+      x = temp_data[,2], 
+      g = temp_data[,3], 
       paired = TRUE,
-      p.adj = "hochberg")
+      p.adjust.method = "holm")
     stats[[i]] = test
   }
   
