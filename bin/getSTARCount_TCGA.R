@@ -31,7 +31,7 @@ ifelse(test = !dir.exists(file.path(proj.dir)),
                setwd(file.path(proj.dir))), 
        no = "Folder exists")
 getwd()
-data.dir = file.path(proj.dir, "data", "TCGA", "RNASeq-Count")
+data.dir = file.path(proj.dir, "data", "TCGA", "RNASeq-Counts") # STAR counts
 dir.create(data.dir, recursive = TRUE)
 
 
@@ -42,7 +42,7 @@ projects <- projects[grepl('^TCGA', projects, perl = TRUE)]
 projects
 
 CancerProject <- c("TCGA-COAD", "TCGA-READ")
-WorkflowType = "HTSeq - Counts"
+WorkflowType = "STAR - Counts"
 
 
 genes <- read.table(
@@ -146,7 +146,7 @@ DEGanalysis <- function(stages, title,
            project = CancerProject, 
            data.category = "Transcriptome Profiling",
            data.type = "Gene Expression Quantification", 
-           workflow.type = "HTSeq - Counts",
+           workflow.type = "STAR - Counts",
            legacy = FALSE))
   saveRDS(queryDown, file.path(data.dir, paste0("GDCquery_", title, ".RDS")))
   # Download samples
@@ -235,6 +235,7 @@ DEGanalysis <- function(stages, title,
   flog.debug("Perform differential gene expression analysis")
   dataDEGs <- TCGAanalyze_DEA(mat1 = patients[,paste0("Colon_", SampleNT_Stage_final)], 
                               mat2 = patients[,paste0("Cancer_", SampleTP_Stage_final)], 
+                              # missing in total 6 values, 3 for early stages and 3 for late stages
                               Cond1type = "Normal", 
                               Cond2type = "Tumor",
                               batch.factors = DEA_batch.factor,
