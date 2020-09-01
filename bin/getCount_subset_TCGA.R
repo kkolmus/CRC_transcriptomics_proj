@@ -31,7 +31,7 @@ ifelse(test = !dir.exists(file.path(proj.dir)),
                setwd(file.path(proj.dir))), 
        no = "Folder exists")
 getwd()
-data.dir = file.path(proj.dir, "data", "TCGA", "RNASeq-Counts") # STAR counts
+data.dir = file.path(proj.dir, "data", "TCGA", "RNASeq-Count-subset")
 dir.create(data.dir, recursive = TRUE)
 
 
@@ -42,7 +42,7 @@ projects <- projects[grepl('^TCGA', projects, perl = TRUE)]
 projects
 
 CancerProject <- c("TCGA-COAD", "TCGA-READ")
-WorkflowType = "STAR - Counts"
+WorkflowType = "HTSeq - Counts"
 
 
 genes <- read.table(
@@ -66,7 +66,8 @@ stats <- as.character(stats)
 
 dataClin <- filter(dataClin, dataClin$ajcc_pathologic_stage %in% stats)
 
-# saveRDS()
+saveRDS(dataClin, file.path(data.dir, paste0("dataClin.RDS")))
+
 
 flog.debug("Query GDC")
 
@@ -94,10 +95,30 @@ SampleNT_pmatched <- pmatch(Sample.Short, SampleNT)
 SampleNT_pmatched <- SampleNT_pmatched[!is.na(SampleNT_pmatched)]
 SampleNT_final <- SampleNT[SampleNT_pmatched]
 
+### Load samples that were analyzed with protocol legacy = TRUE
+Sample_Earlystages_Analyzed <- readRDS("~/Desktop/HT projects/TCGA_transcriptomics_proj/data_results/SampleNTEarlystages.RDS")
+Sample_Latestages_Analyzed <- readRDS("~/Desktop/HT projects/TCGA_transcriptomics_proj/data_results/SampleNTLatestages.RDS")
+Sample_Analyzed <- c(Sample_Earlystages_Analyzed, Sample_Latestages_Analyzed)
+Sample_Analyzed <- substr(x = Sample_Analyzed, start = 1, stop = 12)
+Sample_Analyzed <- paste(Sample_Analyzed, collapse = "|")
+
+
+SampleTP_final <- data.frame(barcode = SampleTP_final)
+SampleTP_final <- SampleTP_final %>%
+  filter(!str_detect(barcode, Sample_Analyzed))
+
+
+SampleNT_final <- data.frame(barcode = SampleNT_final)
+SampleNT_final <- SampleNT_final %>%
+  filter(!str_detect(barcode, Sample_Analyzed))
+
+Sample.Short <- substr(x = SampleNT_final$barcode, start = 1, stop = 12)
 
 dataClin <- filter(
   dataClin,
   dataClin$bcr_patient_barcode %in% Sample.Short)
+
+dataClin %>% dplyr::group_by(ajcc_pathologic_stage) %>% dplyr::summarise(n = n())
 
 Sample.Short_4_filter <- dataClin$submitter_id
 Sample.Short_4_filter <- paste0(Sample.Short, collapse = "|")
@@ -146,7 +167,7 @@ DEGanalysis <- function(stages, title,
            project = CancerProject, 
            data.category = "Transcriptome Profiling",
            data.type = "Gene Expression Quantification", 
-           workflow.type = "STAR - Counts",
+           workflow.type = "HTSeq - Counts",
            legacy = FALSE))
   saveRDS(queryDown, file.path(data.dir, paste0("GDCquery_", title, ".RDS")))
   # Download samples
@@ -235,7 +256,6 @@ DEGanalysis <- function(stages, title,
   flog.debug("Perform differential gene expression analysis")
   dataDEGs <- TCGAanalyze_DEA(mat1 = patients[,paste0("Colon_", SampleNT_Stage_final)], 
                               mat2 = patients[,paste0("Cancer_", SampleTP_Stage_final)], 
-                              # missing in total 6 values, 3 for early stages and 3 for late stages
                               Cond1type = "Normal", 
                               Cond2type = "Tumor",
                               batch.factors = DEA_batch.factor,
