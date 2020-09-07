@@ -31,7 +31,7 @@ ifelse(test = !dir.exists(file.path(proj.dir)),
                setwd(file.path(proj.dir))), 
        no = "Folder exists")
 getwd()
-data.dir = file.path(proj.dir, "data", "TCGA", "RNASeq-Count")
+data.dir = file.path(proj.dir, "data", "TCGA", "RNASeq-Count_DESeq2")
 dir.create(data.dir, recursive = TRUE)
 
 
@@ -66,7 +66,6 @@ stats <- as.character(stats)
 
 dataClin <- filter(dataClin, dataClin$ajcc_pathologic_stage %in% stats)
 
-# saveRDS()
 
 flog.debug("Query GDC")
 
@@ -107,13 +106,11 @@ Sample.Short_4_filter <- paste0(Sample.Short, collapse = "|")
 flog.debug("Download, normalize, filter and perform differential gene expression analysis")
 
 DEGanalysis <- function(stages, title,
-                        UP = 0.6, DOWN = -0.6, FDR_cutoff = 0.05,
+                        UP = 0.6, DOWN = -0.6, confidence.cutoff = 0.05,
                         reads = 5,
                         PreProc_cor.cut = 0.6, 
                         Filt_method = "quantile", 
-                        Filt_qnt.cut = 0.25,
-                        DEA_batch.factor = "Plate",
-                        DEA_method = "glmLRT") {
+                        Filt_qnt.cut = 0.25) {
   
   title = str_replace_all(title, fixed(" "), "")
   
@@ -194,7 +191,7 @@ DEGanalysis <- function(stages, title,
   dataFilt_transposed_NT = t(dataFilt_transposed_NT)
   dataFilt_transposed_NT = as.data.frame(dataFilt_transposed_NT)
   temp_colnames = colnames(dataFilt_transposed_NT)
-  temp_colnames = paste0("Colon_", temp_colnames)
+  # temp_colnames = paste0("Colon_", temp_colnames)
   colnames(dataFilt_transposed_NT) = temp_colnames
   dataFilt_transposed_NT = rownames_to_column(dataFilt_transposed_NT, "ENSEMBLid")
   ### select only genes, which have at least x counts in all patients
@@ -212,7 +209,7 @@ DEGanalysis <- function(stages, title,
   dataFilt_transposed_TP = t(dataFilt_transposed_TP)
   dataFilt_transposed_TP = as.data.frame(dataFilt_transposed_TP)
   temp_colnames = colnames(dataFilt_transposed_TP)
-  temp_colnames = paste0("Cancer_", temp_colnames)
+  # temp_colnames = paste0("Cancer_", temp_colnames)
   colnames(dataFilt_transposed_TP) = temp_colnames
   dataFilt_transposed_TP = rownames_to_column(dataFilt_transposed_TP, "ENSEMBLid")
   ### select only genes, which have at least x counts in all patients
@@ -233,29 +230,44 @@ DEGanalysis <- function(stages, title,
           file.path(data.dir, paste0("patients_", title,".RDS")))
   
   flog.debug("Perform differential gene expression analysis")
-  dataDEGs <- TCGAanalyze_DEA(mat1 = patients[,paste0("Colon_", SampleNT_Stage_final)], 
-                              mat2 = patients[,paste0("Cancer_", SampleTP_Stage_final)], 
-                              Cond1type = "Normal", 
-                              Cond2type = "Tumor",
-                              batch.factors = DEA_batch.factor,
-                              fdr.cut = 1, 
-                              logFC.cut = 0,
-                              method = DEA_method)
+  mat1 = patients[,SampleTP_Stage_final]
+  new_colnames = paste0(colnames(mat1), "_", "cancer")
+  colnames(mat1) = new_colnames
+  dim(mat1)
+  mat2 = patients[,SampleNT_Stage_final]
+  new_colnames = paste0(colnames(mat2), "_", "colon")
+  colnames(mat2) = new_colnames
+  dim(mat2)
+  temp_cts = cbind(mat1, mat2)
+  dim(temp_cts)
+  rm(new_colnames, mat1, mat2)
+  # prepare pheno data
+  temp_pdata = data.frame(
+    sampleID = colnames(temp_cts))
+  temp_pdata$tissue_type = factor(ifelse(
+    test = grepl(pattern = "cancer", temp_pdata$sampleID),
+    yes = "cancer",
+    no = "colon"
+  ), levels = c("colon", "cancer"))
+  temp_pdata$plate = factor(substring(temp_pdata$sampleID, 22, 25))
+  rownames(temp_pdata) = temp_pdata$sampleID
   
-  dataDEGs <- tibble::rownames_to_column(dataDEGs, var = "ENSEMBLid")
-  dataDEGs <- mutate_at(dataDEGs, vars(-ENSEMBLid), funs(as.numeric(.)))
-  dataDEGs$Threshold <- with(dataDEGs, ifelse(dataDEGs$logFC >= UP & 
-                                                dataDEGs$FDR < FDR_cutoff, 
-                                              "Upregulated",
-                                              ifelse(dataDEGs$logFC <= DOWN & 
-                                                       dataDEGs$FDR < FDR_cutoff, 
-                                                     "Downregulated", "Not significant")))
-  dataDEGs <<- assign(paste0("dataDEGs_", title), dataDEGs)
-  saveRDS(dataDEGs,
-          file.path(data.dir, paste0("dataDEGs_", title,".RDS")))
+  dds = DESeqDataSetFromMatrix(
+    countData = temp_cts,
+    colData = temp_pdata,
+    design = ~ tissue_type + plate)
   
-  flog.debug("Convert ENSEMBLid to Gene Symbols")
-  ENSEMBLid = dataDEGs$ENSEMBLid
+  dds = DESeq(dds)
+  res = results(dds)
+  res = results(dds, name = "tissue_type_cancer_vs_colon")
+  res_gene = res@rownames
+  res = as.data.frame(res@listData)
+  rownames(res) = res_gene
+  
+  dataDEAs = tibble::rownames_to_column(res, var = "ENSEMBLid")
+  dataDEAs = mutate_at(dataDEAs, vars(-ENSEMBLid), funs(as.numeric(.)))
+  
+  ENSEMBLid = dataDEAs$ENSEMBLid
   
   Symbols = getBM(
     filters = "ensembl_gene_id", 
@@ -268,9 +280,28 @@ DEGanalysis <- function(stages, title,
     ENSEMBLid = ensembl_gene_id,
     Symbol = hgnc_symbol)
   
-  dataDEGs = inner_join(dataDEGs, Symbols, by = "ENSEMBLid") 
+  dataDEAs = inner_join(dataDEAs, Symbols, by = "ENSEMBLid") 
   
-  saveRDS(dataDEGs, file.path(data.dir, paste0("dataDEGs_", title, ".RDS")))
+  dataDEAs = dataDEAs[, c(1,8,2:7)]
+  
+  dataDEAs$Threshold <- with(
+    dataDEAs, 
+    ifelse(
+      test = dataDEAs$log2FoldChange >= UP & dataDEAs$padj < confidence.cutoff, 
+      yes = "Upregulated",
+      no = ifelse(
+        test = dataDEAs$log2FoldChange <= DOWN & dataDEAs$padj < confidence.cutoff, 
+        yes = "Downregulated", 
+        no = "Not significant")))
+  
+  temp_cts = as.data.frame(temp_cts)
+  temp_cts = rownames_to_column(temp_cts, "ENSEMBLid")
+  
+  dataDEAs = left_join(dataDEAs, temp_cts, by = "ENSEMBLid")
+
+  dataDEAs <<- assign(paste0("dataDEAs_", title), dataDEAs)
+  
+  saveRDS(dataDEAs, file.path(data.dir, paste0("dataDEA_", title,".RDS")))
 }
 
 
@@ -289,6 +320,6 @@ flog.debug("Perform analysis for the late stages of carcinogenesis")
 SampleNT_Stage_final <- c()
 SampleTP_Stage_final <- c()
 
-DEGanalysis(stages = c("Stage III", "Stage IIIA", "Stage IIIB", "Stage IIIC", 
-                       "Stage IV", "Stage IVA", "Stage IVB"), 
-            title = "Late stages")
+DEGanalysis(
+  stages = c("Stage III", "Stage IIIA", "Stage IIIB", "Stage IIIC", "Stage IV", "Stage IVA", "Stage IVB"), 
+  title = "Late stages")
