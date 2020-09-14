@@ -6,6 +6,7 @@ suppressPackageStartupMessages({
   library(SummarizedExperiment)
   library(DESeq2)
   library(tidyverse)
+  library(WriteXLS)
 })
 
 
@@ -274,20 +275,20 @@ DEGanalysis(
   title = "Late stages")
 
 
-# flog.debug("Combine datasets")
-# 
-# dataDEG_Earlystages <- readRDS("~/Desktop/HT projects/TCGA_transcriptomics_proj/data_matchedStages/dataDEG_Earlystages.RDS")
-# dataDEG_Latestages <- readRDS("~/Desktop/HT projects/TCGA_transcriptomics_proj/data_matchedStages/dataDEG_Latestages.RDS")
-# 
-# dataDEG_Earlystages <- dataDEG_Earlystages[, c(1,2,6,7)]
-# dataDEG_Earlystages <- filter(dataDEG_Earlystages, dataDEG_Earlystages$Threshold != "Not significant")
-# 
-# dataDEG_Latestages <- dataDEG_Latestages[, c(1,2,6,7)]
-# dataDEG_Latestages <- filter(dataDEG_Latestages, dataDEG_Latestages$Threshold != "Not significant")
-# 
-# dataDEG <- full_join(dataDEG_Earlystages, dataDEG_Latestages, by = "Symbol",
-#                      suffix = c("_earlyStage", "_advancedStages"))
-# dataDEG[is.na(dataDEG)] <- ""
-# 
-# setwd("~/Desktop/HT projects/TCGA_transcriptomics_proj/data_matchedStages")
-# WriteXLS(dataDEG, "dataDEG.xlsx")
+flog.debug("Combine datasets")
+
+dataDEA_Earlystages <- readRDS(file.path(data.dir, "dataDEA_Earlystages.RDS"))
+dataDEA_Latestages <- readRDS(file.path(data.dir, "dataDEA_Latestages.RDS"))
+
+dataDEA_Earlystages <- dataDEA_Earlystages[, c(1,3,7,8)]
+dataDEA_Earlystages <- filter(dataDEA_Earlystages, dataDEA_Earlystages$Threshold != "Not significant")
+
+dataDEA_Latestages <- dataDEA_Latestages[, c(1,3,7,8)]
+dataDEA_Latestages <- filter(dataDEA_Latestages, dataDEA_Latestages$Threshold != "Not significant")
+
+dataDEA <- full_join(dataDEA_Earlystages, dataDEA_Latestages, by = "Symbol",
+                     suffix = c("_earlyStage", "_advancedStages"))
+dataDEA[is.na(dataDEA)] <- ""
+
+setwd("~/Desktop/HT projects/CRC_transcriptomics_proj/data/TCGA/Illumina_HiSeq_Results")
+WriteXLS(dataDEA, "dataDEA.xlsx")

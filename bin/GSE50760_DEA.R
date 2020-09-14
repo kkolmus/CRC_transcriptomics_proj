@@ -54,12 +54,15 @@ dds <- DESeqDataSetFromMatrix(
 dds
 
 # prefilter
-# keep <- rowSums((counts(dds)) >= 10) >= 3
-# dds <- dds[keep,]
-# dds
+reads = 50
+# keep <- rowSums((counts(dds)) >= 25) >= (ncol((counts(dds))/2))
+keep <- rowSums(counts(dds)) >= (ncol(counts(dds))*reads)
+dds <- dds[keep,]
+dds
 
 # relevel
 dds$tissue_type <- factor(dds$tissue_type, levels = c("colon","cancer"))
+dds$tissue_type <- relevel(dds$tissue_type, ref = "colon")
 
 # DEA
 dds <- DESeq(dds)
